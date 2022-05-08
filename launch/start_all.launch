@@ -1,6 +1,6 @@
 <launch>
     <!-- Arguments -->
-    <arg name="auto_start" default="false" />    
+    <arg name="auto_start" default="true" />    
     <arg name="open_rviz" default="false" />    
 
     <!-- SLAM -->
@@ -18,10 +18,12 @@
     </include>
 
     <!-- My Node -->
-    <node pkg="deliverable1" type="my_node.py" name="my_node" output="screen" />
+    <node pkg="ecte477_demonstration2" type="my_node.py" name="my_node" output="screen">
+        <rosparam file="$(find ecte477_demonstration2)/param/beacons.yaml" command="load"/>
+    </node>
 
     <!-- RViz (don't change) -->
     <node pkg="rviz" type="rviz" name="rviz" required="true"
-          args="-d $(find deliverable1)/rviz/my_layout.rviz"/>
+          args="-d $(find ecte477_demonstration2)/rviz/my_layout.rviz"/>
 
 </launch>

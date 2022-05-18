@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 """
     my_node.py
 
@@ -17,7 +17,7 @@ import cv2
 import imutils
 import numpy as np
 import transformations as trans
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from geometry_msgs.msg import PoseStamped, Quaternion, Vector3, Pose, Point
 from visualization_msgs.msg import MarkerArray, Marker
@@ -33,10 +33,10 @@ class my_node:
         self.depth_frame = None
         self.mask_frame = None
         self.ranges = [
-            {'upper': (119, 241, 92), 'lower': (122, 255, 245), 'name': 'blue', 'RGBA': (0,0,1,1)},
-            {'upper': (59, 241, 92), 'lower': (65, 255, 245), 'name': 'green', 'RGBA': (0,1,0,1)},
-            {'upper': (0, 241, 92), 'lower': (8, 255, 245), 'name': 'red', 'RGBA': (1,0,0,1)},
-            {'upper': (27, 241, 92), 'lower': (33, 255, 245), 'name': 'yellow', 'RGBA': (0.5,0.5,0,1)}]
+            {'upper': (95, 77, 51), 'lower': (169, 255, 153), 'name': 'blue', 'RGBA': (0,0,1,1)},
+            {'upper': (74, 77, 51), 'lower': (108, 255, 108), 'name': 'green', 'RGBA': (0,1,0,1)},
+            {'upper': (0, 77, 51), 'lower': (10, 255, 202), 'name': 'red', 'RGBA': (1,0,0,1)},
+            {'upper': (18, 152, 51), 'lower': (49, 220, 255), 'name': 'yellow', 'RGBA': (0.5,0.5,0,1)}]
         self.K = None
         self.transform_cam_to_world = None
 
@@ -56,9 +56,9 @@ class my_node:
         self.subscriber_map = rospy.Subscriber('/map', OccupancyGrid, self.callback_map)
         self.subscriber_odom = rospy.Subscriber('/odom', Odometry, self.callback_odom)
         # for Gazebo8, use normal topic and 'Image' data type instead of compressed
-        self.subscriber_colour = rospy.Subscriber('/camera/rgb/image_raw', Image, self.callback_colour)
-        self.subscriber_depth = rospy.Subscriber('/camera/depth/image_raw', Image, self.callback_depth)
-        self.subscriber_camera_info = rospy.Subscriber('camera/rgb/camera_info', CameraInfo, self.callback_camera_info)
+        self.subscriber_colour = rospy.Subscriber('/camera/color/image_raw', Image, self.callback_colour)
+        self.subscriber_depth = rospy.Subscriber('/camera/aligned_depth_to_color/image_raw', Image, self.callback_depth)
+        self.subscriber_camera_info = rospy.Subscriber('camera/color/camera_info', CameraInfo, self.callback_camera_info)
         self.publisher_map = rospy.Publisher('/ecte477/map', OccupancyGrid, queue_size=1)
         self.publisher_path = rospy.Publisher('/ecte477/path', Path, queue_size=1)
         self.publisher_markers = rospy.Publisher('/ecte477/markers', MarkerArray, queue_size=10)
@@ -75,6 +75,8 @@ class my_node:
         if self.colour_frame == None:
             return
         self.mask_frame = self.colour_frame
+   
+
 
         colour_contours = []
 
@@ -98,11 +100,11 @@ class my_node:
                 x, y, w, h = cv2.boundingRect(largest_contour)
 
                 # for accurate location only continue if the contour is big enough
-                if cv2.contourArea(largest_contour) < 10000:
-                    return
-                # don't process contours close to the edge
-                if (x+w/2) < 100 or (x+w/2) > (1920-100):
-                    return
+                if cv2.contourArea(largest_contour) < 5000:
+                    continue
+                # # don't process contours close to the edge
+                # if (x+w/2) < 100 or (x+w/2) > (1920-100):
+                #     return
                 
 
                 # append the largest ('nearest') contour to the array
@@ -116,6 +118,7 @@ class my_node:
         colour_contours.sort(key=lambda x:x['height'])
 
         colour_masks = self.colour_frame
+        print "color callback!!!!"
         for colour in colour_contours:
             x, y, w, h = cv2.boundingRect(colour['contour'])
             # draw the colour contour
@@ -128,6 +131,7 @@ class my_node:
         if (abs(colour_contours[0]['centre'][0] - colour_contours[1]['centre'][0]) > 20):
             return
 
+
         for beacon in self.beacons:
             if beacon['top'] == colour_contours[0]['name'] and beacon['bottom'] == colour_contours[1]['name']:
                 # Check if the beacon was already discovered 
@@ -138,16 +142,17 @@ class my_node:
                 beacon_id = beacon['id']
                 print "MATCH!!"
 
-        print "(x:{}, y:{}) Colours from the top: {}, {}".format(colour_contours[0]['centre'][0], colour_contours[0]['centre'][1], colour_contours[0]['name'], colour_contours[1]['name'])
 
         if self.K == None or self.transform_cam_to_world == None or self.depth_frame == None:
             return
+        print "(x:{}, y:{}) Colours from the top: {}, {}".format(colour_contours[0]['centre'][0], colour_contours[0]['centre'][1], colour_contours[0]['name'], colour_contours[1]['name'])
         
         # x, y of the top colour contour
         x, y = colour_contours[0]['centre']
 
         # calculate position of the beacon
-        depth = self.depth_frame[y, x] + 0.1
+        depth = self.depth_frame[y, x]/1000.0 + 0.1
+        print depth
         p_h = np.array([[x], [y], [1]])
         p3d = depth * np.matmul(np.linalg.inv(self.K), p_h)
         p3d_h = np.array([[p3d[2][0]], [-p3d[0][0]], [-p3d[1][0]], [1]])
@@ -168,15 +173,15 @@ class my_node:
         self.marker_array.markers.append(marker)
         self.publisher_markers.publish(self.marker_array)
 
-        beacon = Beacon()
-        beacon.header.seq= marker.id = beacon_id
-        beacon.header.frame_id = 'map'
-        beacon.header.stamp = rospy.Time.now()
-        beacon.position = Point(p3d_w[0], p3d_w[1], 1)
-        beacon.top = colour_contours[0]['name']
-        beacon.bottom = colour_contours[1]['name']
+        # beacon = Beacon()
+        # beacon.header.seq= marker.id = beacon_id
+        # beacon.header.frame_id = 'map'
+        # beacon.header.stamp = rospy.Time.now()
+        # beacon.position = Point(p3d_w[0], p3d_w[1], 1)
+        # beacon.top = colour_contours[0]['name']
+        # beacon.bottom = colour_contours[1]['name']
 
-        self.publisher_beacon.publish(beacon)
+        # self.publisher_beacon.publish(beacon)
 
     def callback_colour(self, colour_image):
         # rospy.loginfo('[Image Processing] callback_colour')
